@@ -1,0 +1,3965 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Dino Neon Game - Thunder Edition</title>
+
+<style>
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #000;
+    color: #00f0ff;
+    font-family: "Courier New", monospace;
+    overflow: hidden;
+    user-select: none;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    min-height: 100vh;
+}
+
+.wrapper {
+    width: 95vw;
+    max-width: 1200px;
+}
+
+canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+
+    background: #05050a;
+
+    border: 2px solid #00f0ff;
+    border-radius: 8px;
+
+    box-shadow:
+        0 0 10px #00f0ff,
+        0 0 30px rgba(0, 240, 255, 0.35);
+
+    image-rendering: pixelated;
+
+    cursor: pointer;
+}
+
+.info {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 14px;
+    color: #00f0ff;
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+
+<canvas id="gameCanvas" width="800" height="200"></canvas>
+
+<div class="info">
+    ESPAÇO = PULAR &nbsp;&nbsp; | &nbsp;&nbsp;
+    R = RAIO
+</div>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+ctx.imageSmoothingEnabled = false;
+
+
+// ============================================================
+// ESTADO DO JOGO
+// ============================================================
+
+let gameStarted = false;
+let gameOver = false;
+
+let score = 0;
+let highScore = 0;
+
+let speed = 6;
+
+let groundY = 170;
+
+let obstacles = [];
+
+let nextObstacleTimer = 60;
+
+
+// ============================================================
+// DINOSSAURO
+// ============================================================
+
+const dino = {
+
+    x: 60,
+    y: 130,
+
+    width: 38,
+    height: 40,
+
+    velocityY: 0,
+
+    gravity: 0.8,
+
+    jumpPower: -13,
+
+    onGround: true,
+
+    legAnimation: 0
+};
+
+
+// ============================================================
+// MATRIZ DO DINOSSAURO
+// ============================================================
+
+const DINO_MATRIX = [
+
+    "............XXXXXX.",
+    "...........XXXXXXXX",
+    "...........XX.XXXXX",
+    "...........XXXXXXXX",
+    "...........XXX.....",
+    "...........XXXXXXX.",
+    "X.........XXXXXXXX.",
+    "X........XXXXXXXX..",
+    "X.......XXXXXXXX...",
+    "XX.....XXXXXXXXX...",
+    "XXX...XXXXXXXXXX...",
+    "XXXXXXXXXXXXXX.....",
+    " XXXXXXXXXXXX......",
+    "  XXXXXXXXXX.......",
+    "   XXXXXXXX........",
+    "    XXXXXX........."
+
+];
+
+
+// ============================================================
+// RAIO
+// ============================================================
+
+const COOLDOWN_TIME = 3000;
+
+let lastLightningTime = -COOLDOWN_TIME;
+
+let isLightningActive = false;
+
+let lightningDuration = 0;
+
+let lightningParticles = [];
+
+let screenFlash = 0;
+
+
+// ============================================================
+// ROTAS
+// ============================================================
+
+let routeChoiceActive = false;
+
+let routeTransition = false;
+
+let routeAnimation = 0;
+
+let selectedRoute = 0;
+
+let chosenRoute = 0;
+
+
+// ============================================================
+// CUTSCENE DO FINAL
+// ============================================================
+
+let endingActive = false;
+
+let endingPhase = 0;
+
+let endingTimer = 0;
+
+let endingDinoX = 230;
+
+let endingGirlX = 570;
+
+let hearts = [];
+
+
+// ============================================================
+// FINAL RUIM - ROTA 1
+// ============================================================
+
+let badEndingActive = false;
+
+let badEndingPhase = 0;
+
+let badEndingTimer = 0;
+
+
+// ============================================================
+// TECLADO
+// ============================================================
+
+document.addEventListener("keydown", function(e) {
+
+    // ========================================================
+    // CTRL + V = LIMPAR TODOS OS CACTOS
+    // ========================================================
+
+    if (
+        e.ctrlKey &&
+        e.code === "KeyV"
+    ) {
+
+        obstacles = [];
+
+        return;
+    }
+
+
+    // FINAL FELIZ
+    if (endingActive) {
+
+        if (
+            endingPhase >= 4 &&
+            (
+                e.code === "Space" ||
+                e.code === "Enter"
+            )
+        ) {
+
+            resetGame();
+
+            return;
+        }
+
+        return;
+    }
+
+
+    // FINAL RUIM
+    if (badEndingActive) {
+
+        if (
+            badEndingPhase >= 3 &&
+            (
+                e.code === "Space" ||
+                e.code === "Enter"
+            )
+        ) {
+
+            resetGame();
+
+            return;
+        }
+
+        return;
+    }
+
+
+    // ESCOLHA DE ROTA
+    if (routeChoiceActive) {
+
+        if (selectedRoute === 0) {
+
+            if (e.code === "Digit1") {
+
+                chooseRoute(1);
+
+                return;
+            }
+
+            if (e.code === "Digit2") {
+
+                chooseRoute(2);
+
+                return;
+            }
+        }
+
+        return;
+    }
+
+
+    // JOGO NORMAL
+    if (
+        e.code === "Space" ||
+        e.code === "ArrowUp"
+    ) {
+
+        e.preventDefault();
+
+        if (gameOver) {
+
+            resetGame();
+
+            return;
+        }
+
+        if (!gameStarted) {
+
+            gameStarted = true;
+
+            return;
+        }
+
+        jump();
+    }
+
+
+    if (e.code === "KeyR") {
+
+        if (
+            gameStarted &&
+            !gameOver
+        ) {
+
+            useLightning();
+        }
+    }
+
+});
+
+
+// ============================================================
+// CLIQUE
+// ============================================================
+
+canvas.addEventListener("mousedown", function(e) {
+
+    const rect = canvas.getBoundingClientRect();
+
+    const scaleX =
+        canvas.width / rect.width;
+
+    const scaleY =
+        canvas.height / rect.height;
+
+    const mouseX =
+        (e.clientX - rect.left) * scaleX;
+
+    const mouseY =
+        (e.clientY - rect.top) * scaleY;
+
+
+    // ========================================================
+    // BOTÃO FINAL FELIZ
+    // ========================================================
+
+    if (endingActive) {
+
+        if (
+            endingPhase >= 4 &&
+
+            mouseX >= 300 &&
+            mouseX <= 500 &&
+
+            mouseY >= 145 &&
+            mouseY <= 180
+        ) {
+
+            resetGame();
+
+            return;
+        }
+
+        return;
+    }
+
+
+    // ========================================================
+    // BOTÃO FINAL RUIM
+    // ========================================================
+
+    if (badEndingActive) {
+
+        if (
+            badEndingPhase >= 3 &&
+
+            mouseX >= 300 &&
+            mouseX <= 500 &&
+
+            mouseY >= 145 &&
+            mouseY <= 180
+        ) {
+
+            resetGame();
+
+            return;
+        }
+
+        return;
+    }
+
+
+    // ========================================================
+    // ESCOLHA DE ROTA
+    // ========================================================
+
+    if (routeChoiceActive) {
+
+        return;
+    }
+
+
+    // ========================================================
+    // GAME OVER
+    // ========================================================
+
+    if (gameOver) {
+
+        resetGame();
+
+        return;
+    }
+
+
+    // ========================================================
+    // COMEÇAR
+    // ========================================================
+
+    if (!gameStarted) {
+
+        gameStarted = true;
+
+        return;
+    }
+
+
+    // ========================================================
+    // CONTROLES
+    // ========================================================
+
+    if (
+        mouseX <
+        canvas.width / 2
+    ) {
+
+        jump();
+
+    } else {
+
+        useLightning();
+    }
+
+});
+
+
+// ============================================================
+// PULO
+// ============================================================
+
+function jump() {
+
+    if (!dino.onGround) {
+
+        return;
+    }
+
+    dino.velocityY =
+        dino.jumpPower;
+
+    dino.onGround = false;
+}
+
+
+// ============================================================
+// RAIO
+// ============================================================
+
+function useLightning() {
+
+    const now = Date.now();
+
+    if (
+        now - lastLightningTime <
+        COOLDOWN_TIME
+    ) {
+
+        return;
+    }
+
+
+    lastLightningTime = now;
+
+    isLightningActive = true;
+
+    lightningDuration = 15;
+
+    screenFlash = 8;
+
+
+    const amount =
+        obstacles.length;
+
+
+    score +=
+        amount * 0.5;
+
+
+    for (
+        const obstacle of obstacles
+    ) {
+
+        createExplosion(
+
+            obstacle.x +
+            obstacle.width / 2,
+
+            obstacle.y +
+            obstacle.height / 2
+        );
+    }
+
+
+    obstacles = [];
+}
+
+
+// ============================================================
+// EXPLOSÃO
+// ============================================================
+
+function createExplosion(x, y) {
+
+    for (
+        let i = 0;
+        i < 18;
+        i++
+    ) {
+
+        lightningParticles.push({
+
+            x: x,
+
+            y: y,
+
+            velocityX:
+                (Math.random() - 0.5) * 7,
+
+            velocityY:
+                (Math.random() - 0.5) * 7,
+
+            life:
+                25 +
+                Math.random() * 20
+        });
+    }
+}
+
+
+// ============================================================
+// CACTO
+// ============================================================
+
+function spawnObstacle() {
+
+    const double =
+        Math.random() < 0.25;
+
+
+    obstacles.push({
+
+        x:
+            canvas.width + 20,
+
+        y:
+            double
+            ? 137
+            : 145,
+
+        width:
+            double
+            ? 30
+            : 18,
+
+        height:
+            double
+            ? 33
+            : 25,
+
+        type:
+            double
+            ? "double"
+            : "single"
+    });
+}
+
+
+// ============================================================
+// COLISÃO
+// ============================================================
+
+function checkCollision(a, b) {
+
+    const padding = 5;
+
+
+    return (
+
+        a.x + padding <
+        b.x + b.width &&
+
+        a.x +
+        a.width -
+        padding >
+        b.x &&
+
+        a.y + padding <
+        b.y + b.height &&
+
+        a.y +
+        a.height -
+        padding >
+        b.y
+    );
+}
+
+
+// ============================================================
+// INICIAR ROTA
+// ============================================================
+
+function startRouteChoice() {
+
+    routeChoiceActive = true;
+
+    routeTransition = true;
+
+    routeAnimation = 0;
+
+    selectedRoute = 0;
+
+
+    obstacles = [];
+
+    lightningParticles = [];
+
+    isLightningActive = false;
+
+
+    dino.velocityY = 0;
+
+    dino.onGround = true;
+
+    dino.x = 380;
+
+    dino.y = 130;
+}
+
+
+// ============================================================
+// ESCOLHER ROTA
+// ============================================================
+
+function chooseRoute(route) {
+
+    if (!routeChoiceActive) {
+
+        return;
+    }
+
+    if (selectedRoute !== 0) {
+
+        return;
+    }
+
+
+    selectedRoute = route;
+
+    chosenRoute = route;
+
+
+    setTimeout(function() {
+
+        routeChoiceActive = false;
+
+        routeTransition = false;
+
+        selectedRoute = 0;
+
+
+        score = 50.01;
+
+        obstacles = [];
+
+        nextObstacleTimer = 80;
+
+
+        dino.x = 60;
+
+        dino.y = 130;
+
+        dino.velocityY = 0;
+
+        dino.onGround = true;
+
+    }, 1000);
+}
+
+
+// ============================================================
+// UPDATE
+// ============================================================
+
+function update() {
+
+    // FINAL FELIZ
+    if (endingActive) {
+
+        updateEnding();
+
+        return;
+    }
+
+
+    // FINAL RUIM
+    if (badEndingActive) {
+
+        updateBadEnding();
+
+        return;
+    }
+
+
+    // ROTAS
+    if (routeChoiceActive) {
+
+        routeAnimation += 0.05;
+
+        return;
+    }
+
+
+    // NÃO INICIADO
+    if (!gameStarted) {
+
+        return;
+    }
+
+
+    // GAME OVER
+    if (gameOver) {
+
+        updateLightningParticles();
+
+        return;
+    }
+
+
+    // DINOSSAURO
+    dino.velocityY +=
+        dino.gravity;
+
+    dino.y +=
+        dino.velocityY;
+
+
+    if (dino.y >= 130) {
+
+        dino.y = 130;
+
+        dino.velocityY = 0;
+
+        dino.onGround = true;
+    }
+
+
+    dino.legAnimation += 0.25;
+
+
+    // VELOCIDADE
+    speed += 0.0008;
+
+
+    // SCORE
+    score += 0.01;
+
+
+    if (score > highScore) {
+
+        highScore = score;
+    }
+
+
+    // CHEGOU NOS 50
+    if (
+        score >= 50 &&
+        !routeChoiceActive &&
+        !routeTransition &&
+        chosenRoute === 0
+    ) {
+
+        startRouteChoice();
+
+        return;
+    }
+
+
+    // FINAL DA ROTA 2
+    if (
+        chosenRoute === 2 &&
+        score >= 100
+    ) {
+
+        startHappyEnding();
+
+        return;
+    }
+
+
+    // FINAL DA ROTA 1
+    if (
+        chosenRoute === 1 &&
+        score >= 100
+    ) {
+
+        startBadEnding();
+
+        return;
+    }
+
+
+    // CACTOS
+    nextObstacleTimer--;
+
+
+    if (
+        nextObstacleTimer <= 0
+    ) {
+
+        spawnObstacle();
+
+
+        nextObstacleTimer =
+            Math.max(
+                45,
+                90 +
+                Math.random() * 80 -
+                speed * 2
+            );
+    }
+
+
+    for (
+        let i = obstacles.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const obstacle =
+            obstacles[i];
+
+
+        obstacle.x -= speed;
+
+
+        if (
+            checkCollision(
+                dino,
+                obstacle
+            )
+        ) {
+
+            gameOver = true;
+        }
+
+
+        if (
+            obstacle.x +
+            obstacle.width <
+            0
+        ) {
+
+            obstacles.splice(i, 1);
+        }
+    }
+
+
+    // RAIO
+    if (isLightningActive) {
+
+        lightningDuration--;
+
+
+        if (
+            lightningDuration <= 0
+        ) {
+
+            isLightningActive =
+                false;
+        }
+    }
+
+
+    updateLightningParticles();
+
+
+    if (screenFlash > 0) {
+
+        screenFlash--;
+    }
+}
+
+
+// ============================================================
+// CUTSCENE FINAL FELIZ
+// ============================================================
+
+function startHappyEnding() {
+
+    endingActive = true;
+
+    endingPhase = 0;
+
+    endingTimer = 0;
+
+    endingDinoX = 230;
+
+    endingGirlX = 570;
+
+    hearts = [];
+
+
+    obstacles = [];
+
+    lightningParticles = [];
+
+    isLightningActive = false;
+}
+
+
+// ============================================================
+// UPDATE CUTSCENE FINAL FELIZ
+// ============================================================
+
+function updateEnding() {
+
+    endingTimer++;
+
+
+    // ENTRADA
+    if (endingPhase === 0) {
+
+        endingDinoX += 1.2;
+
+        endingGirlX -= 1.2;
+
+
+        if (endingTimer > 90) {
+
+            endingPhase = 1;
+
+            endingTimer = 0;
+        }
+    }
+
+
+    // APROXIMAÇÃO
+    else if (endingPhase === 1) {
+
+        endingDinoX += 0.5;
+
+        endingGirlX -= 0.5;
+
+
+        if (endingTimer > 55) {
+
+            endingPhase = 2;
+
+            endingTimer = 0;
+        }
+    }
+
+
+    // BEIJO
+    else if (endingPhase === 2) {
+
+        if (endingTimer === 15) {
+
+            createHearts();
+        }
+
+
+        if (endingTimer > 70) {
+
+            endingPhase = 3;
+
+            endingTimer = 0;
+        }
+    }
+
+
+    // CORAÇÕES
+    else if (endingPhase === 3) {
+
+        updateHearts();
+
+
+        if (endingTimer > 130) {
+
+            endingPhase = 4;
+
+            endingTimer = 0;
+        }
+    }
+
+
+    // FINAL FELIZ
+    else if (endingPhase === 4) {
+
+        updateHearts();
+    }
+}
+
+
+// ============================================================
+// CRIAR CORAÇÕES
+// ============================================================
+
+function createHearts() {
+
+    hearts = [];
+
+
+    for (
+        let i = 0;
+        i < 35;
+        i++
+    ) {
+
+        hearts.push({
+
+            x:
+                80 +
+                Math.random() * 640,
+
+            y:
+                190 +
+                Math.random() * 30,
+
+            speed:
+                0.6 +
+                Math.random() * 1.8,
+
+            size:
+                4 +
+                Math.random() * 7,
+
+            life:
+                180 +
+                Math.random() * 120,
+
+            rotation:
+                Math.random() *
+                Math.PI *
+                2
+        });
+    }
+}
+
+
+// ============================================================
+// UPDATE CORAÇÕES
+// ============================================================
+
+function updateHearts() {
+
+    for (
+        const heart of hearts
+    ) {
+
+        heart.y -=
+            heart.speed;
+
+
+        heart.x +=
+            Math.sin(
+                heart.y * 0.05
+            ) * 0.25;
+
+
+        heart.rotation += 0.02;
+
+
+        heart.life--;
+
+
+        if (
+            heart.y < -20
+        ) {
+
+            heart.y = 205;
+
+            heart.x =
+                80 +
+                Math.random() *
+                640;
+
+            heart.life =
+                200 +
+                Math.random() *
+                100;
+        }
+    }
+}
+
+
+// ============================================================
+// FINAL RUIM - ROTA 1
+// ============================================================
+
+function startBadEnding() {
+
+    badEndingActive = true;
+
+    badEndingPhase = 0;
+
+    badEndingTimer = 0;
+
+
+    obstacles = [];
+
+    lightningParticles = [];
+
+    isLightningActive = false;
+
+
+    dino.velocityY = 0;
+
+    dino.onGround = true;
+}
+
+
+// ============================================================
+// UPDATE FINAL RUIM
+// ============================================================
+
+function updateBadEnding() {
+
+    badEndingTimer++;
+
+
+    // ENTRADA NA MANSÃO
+    if (badEndingPhase === 0) {
+
+        if (badEndingTimer > 100) {
+
+            badEndingPhase = 1;
+
+            badEndingTimer = 0;
+        }
+    }
+
+
+    // ZOOM NO DINOSSAURO
+    else if (badEndingPhase === 1) {
+
+        if (badEndingTimer > 100) {
+
+            badEndingPhase = 2;
+
+            badEndingTimer = 0;
+        }
+    }
+
+
+    // BALÃO
+    else if (badEndingPhase === 2) {
+
+        if (badEndingTimer > 140) {
+
+            badEndingPhase = 3;
+
+            badEndingTimer = 0;
+        }
+    }
+
+
+    // FINAL RUIM
+    else if (badEndingPhase === 3) {
+
+        // permanece parado
+    }
+}
+
+
+// ============================================================
+// DESENHAR FINAL RUIM
+// ============================================================
+
+function drawBadEnding() {
+
+    ctx.fillStyle = "#080808";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    // ========================================================
+    // MANSÃO
+    // ========================================================
+
+    ctx.fillStyle = "#15151f";
+
+    ctx.fillRect(
+        80,
+        35,
+        640,
+        135
+    );
+
+
+    // borda
+
+    ctx.strokeStyle = "#00f0ff";
+
+    ctx.lineWidth = 2;
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor = "#00f0ff";
+
+    ctx.strokeRect(
+        80,
+        35,
+        640,
+        135
+    );
+
+    ctx.shadowBlur = 0;
+
+
+    // telhado
+
+    ctx.fillStyle = "#11111a";
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        55,
+        35
+    );
+
+    ctx.lineTo(
+        400,
+        5
+    );
+
+    ctx.lineTo(
+        745,
+        35
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.strokeStyle = "#00f0ff";
+
+    ctx.stroke();
+
+
+    // ========================================================
+    // JANELAS
+    // ========================================================
+
+    ctx.fillStyle = "#00f0ff";
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor = "#00f0ff";
+
+
+    ctx.fillRect(
+        125,
+        65,
+        80,
+        55
+    );
+
+
+    ctx.fillRect(
+        595,
+        65,
+        80,
+        55
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    ctx.fillStyle = "#15151f";
+
+
+    ctx.fillRect(
+        162,
+        65,
+        6,
+        55
+    );
+
+
+    ctx.fillRect(
+        125,
+        90,
+        80,
+        6
+    );
+
+
+    ctx.fillRect(
+        632,
+        65,
+        6,
+        55
+    );
+
+
+    ctx.fillRect(
+        595,
+        90,
+        80,
+        6
+    );
+
+
+    // ========================================================
+    // PORTA
+    // ========================================================
+
+    ctx.fillStyle = "#09090d";
+
+    ctx.fillRect(
+        350,
+        85,
+        100,
+        85
+    );
+
+
+    ctx.strokeStyle = "#00f0ff";
+
+    ctx.strokeRect(
+        350,
+        85,
+        100,
+        85
+    );
+
+
+    // ========================================================
+    // DINHEIRO
+    // ========================================================
+
+    drawMoney(
+        125,
+        145
+    );
+
+    drawMoney(
+        180,
+        150
+    );
+
+    drawMoney(
+        590,
+        145
+    );
+
+    drawMoney(
+        650,
+        150
+    );
+
+    drawMoney(
+        270,
+        150
+    );
+
+    drawMoney(
+        520,
+        150
+    );
+
+
+    // ========================================================
+    // DINOSSAURO
+    // ========================================================
+
+    if (badEndingPhase >= 1) {
+
+        drawSadDinoZoom();
+
+    } else {
+
+        drawEndingDino(
+            365,
+            90
+        );
+    }
+
+
+    // ========================================================
+    // BALÃO
+    // ========================================================
+
+    if (badEndingPhase >= 2) {
+
+        drawSadSpeechBubble();
+    }
+
+
+    // ========================================================
+    // FINAL RUIM
+    // ========================================================
+
+    if (badEndingPhase >= 3) {
+
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = "#ff3030";
+
+        ctx.font =
+            "bold 25px Courier New";
+
+        ctx.shadowBlur = 20;
+
+        ctx.shadowColor = "#ff3030";
+
+
+        ctx.fillText(
+            "FINAL RUIM",
+            400,
+            28
+        );
+
+
+        ctx.shadowBlur = 0;
+
+
+        // BOTÃO
+
+        ctx.fillStyle =
+            "rgba(255,48,48,0.12)";
+
+        ctx.fillRect(
+            300,
+            145,
+            200,
+            35
+        );
+
+
+        ctx.strokeStyle =
+            "#ff3030";
+
+        ctx.lineWidth = 2;
+
+        ctx.strokeRect(
+            300,
+            145,
+            200,
+            35
+        );
+
+
+        ctx.fillStyle = "#fff";
+
+        ctx.font =
+            "bold 12px Courier New";
+
+
+        ctx.fillText(
+            "REINICIAR",
+            400,
+            168
+        );
+    }
+}
+
+
+// ============================================================
+// DINHEIRO
+// ============================================================
+
+function drawMoney(x, y) {
+
+    ctx.fillStyle = "#00ff66";
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor = "#00ff66";
+
+
+    ctx.fillRect(
+        x,
+        y,
+        28,
+        14
+    );
+
+
+    ctx.fillStyle = "#062b16";
+
+    ctx.font =
+        "bold 10px Courier New";
+
+    ctx.textAlign = "center";
+
+
+    ctx.fillText(
+        "$",
+        x + 14,
+        y + 11
+    );
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// DINOSSAURO TRISTE - ZOOM
+// ============================================================
+
+function drawSadDinoZoom() {
+
+    const zoom =
+        Math.min(
+            1.7,
+            1 +
+            badEndingTimer * 0.007
+        );
+
+
+    ctx.save();
+
+
+    ctx.translate(
+        400,
+        130
+    );
+
+
+    ctx.scale(
+        zoom,
+        zoom
+    );
+
+
+    ctx.translate(
+        -400,
+        -130
+    );
+
+
+    // corpo
+
+    ctx.fillStyle = "#00f0ff";
+
+    ctx.shadowBlur = 14;
+
+    ctx.shadowColor = "#00f0ff";
+
+
+    ctx.fillRect(
+        355,
+        105,
+        70,
+        55
+    );
+
+
+    // pescoço
+
+    ctx.fillRect(
+        405,
+        70,
+        25,
+        55
+    );
+
+
+    // cabeça
+
+    ctx.fillRect(
+        390,
+        55,
+        65,
+        45
+    );
+
+
+    // focinho
+
+    ctx.fillRect(
+        440,
+        75,
+        30,
+        20
+    );
+
+
+    // cauda
+
+    ctx.fillRect(
+        315,
+        120,
+        45,
+        15
+    );
+
+
+    ctx.fillRect(
+        295,
+        125,
+        30,
+        10
+    );
+
+
+    // pernas
+
+    ctx.fillRect(
+        365,
+        150,
+        16,
+        35
+    );
+
+
+    ctx.fillRect(
+        405,
+        150,
+        16,
+        35
+    );
+
+
+    // pés
+
+    ctx.fillRect(
+        355,
+        180,
+        28,
+        8
+    );
+
+
+    ctx.fillRect(
+        400,
+        180,
+        28,
+        8
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // olhos
+
+    ctx.fillStyle = "#000";
+
+
+    ctx.fillRect(
+        418,
+        68,
+        8,
+        8
+    );
+
+
+    ctx.fillRect(
+        448,
+        72,
+        8,
+        8
+    );
+
+
+    // lágrimas
+
+    ctx.fillStyle = "#00aaff";
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor = "#00aaff";
+
+
+    ctx.fillRect(
+        420,
+        77,
+        5,
+        15
+    );
+
+
+    ctx.fillRect(
+        450,
+        81,
+        5,
+        15
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // boca triste
+
+    ctx.strokeStyle = "#000";
+
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+
+    ctx.arc(
+        437,
+        91,
+        13,
+        0.2,
+        Math.PI - 0.2
+    );
+
+    ctx.stroke();
+
+
+    ctx.restore();
+}
+
+
+// ============================================================
+// BALÃO DE DIÁLOGO
+// ============================================================
+
+function drawSadSpeechBubble() {
+
+    ctx.fillStyle =
+        "rgba(255,255,255,0.95)";
+
+
+    ctx.strokeStyle =
+        "#00f0ff";
+
+    ctx.lineWidth = 2;
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.fillRect(
+        170,
+        8,
+        460,
+        50
+    );
+
+
+    ctx.strokeRect(
+        170,
+        8,
+        460,
+        50
+    );
+
+
+    // ponta do balão
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        390,
+        58
+    );
+
+    ctx.lineTo(
+        410,
+        58
+    );
+
+    ctx.lineTo(
+        400,
+        70
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+    ctx.stroke();
+
+
+    ctx.shadowBlur = 0;
+
+
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "#111";
+
+    ctx.font =
+        "bold 11px Courier New";
+
+
+    ctx.fillText(
+        "Não tenho ninguém, pois",
+        400,
+        28
+    );
+
+
+    ctx.fillText(
+        "dinheiro não compra amor...",
+        400,
+        45
+    );
+}
+
+
+// ============================================================
+// DRAW
+// ============================================================
+
+function draw() {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    // FINAL FELIZ
+
+    if (endingActive) {
+
+        drawHappyEnding();
+
+        return;
+    }
+
+
+    // FINAL RUIM
+
+    if (badEndingActive) {
+
+        drawBadEnding();
+
+        return;
+    }
+
+
+    // ROTAS
+
+    if (routeChoiceActive) {
+
+        drawRouteChoice();
+
+        return;
+    }
+
+
+    drawBackground();
+
+    drawGround();
+
+
+    for (
+        const obstacle of obstacles
+    ) {
+
+        drawCactus(obstacle);
+    }
+
+
+    drawDino();
+
+
+    // RAIO
+
+    if (isLightningActive) {
+
+        const lightningStartX =
+            dino.x + 42;
+
+        const lightningStartY =
+            dino.y + 14;
+
+
+        drawLightningBeam(
+            lightningStartX,
+            lightningStartY,
+            canvas.width
+        );
+    }
+
+
+    drawLightningParticles();
+
+    drawHUD();
+
+
+    // TELA INICIAL
+
+    if (!gameStarted) {
+
+        ctx.fillStyle =
+            "rgba(0,0,0,0.65)";
+
+        ctx.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = "#00f0ff";
+
+        ctx.font =
+            "bold 22px Courier New";
+
+        ctx.shadowBlur = 15;
+
+        ctx.shadowColor =
+            "#00f0ff";
+
+
+        ctx.fillText(
+            "DINO NEON",
+            400,
+            70
+        );
+
+
+        ctx.font =
+            "bold 14px Courier New";
+
+
+        ctx.fillText(
+            "PRESSIONE ESPAÇO PARA COMEÇAR",
+            400,
+            105
+        );
+
+
+        ctx.shadowBlur = 0;
+    }
+
+
+    // GAME OVER
+
+    if (gameOver) {
+
+        ctx.fillStyle =
+            "rgba(0,0,0,0.65)";
+
+        ctx.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+
+        ctx.textAlign = "center";
+
+        ctx.fillStyle = "#00f0ff";
+
+        ctx.font =
+            "bold 25px Courier New";
+
+        ctx.shadowBlur = 15;
+
+        ctx.shadowColor =
+            "#00f0ff";
+
+
+        ctx.fillText(
+            "GAME OVER",
+            400,
+            75
+        );
+
+
+        ctx.font =
+            "bold 13px Courier New";
+
+
+        ctx.fillText(
+            "PRESSIONE ESPAÇO PARA RECOMEÇAR",
+            400,
+            105
+        );
+
+
+        ctx.shadowBlur = 0;
+    }
+
+
+    if (screenFlash > 0) {
+
+        ctx.fillStyle =
+            `rgba(255,255,255,${screenFlash / 20})`;
+
+        ctx.fillRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+    }
+}
+
+
+// ============================================================
+// FUNDO
+// ============================================================
+
+function drawBackground() {
+
+    ctx.fillStyle = "#05050a";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    ctx.fillStyle = "#00f0ff";
+
+
+    for (
+        let i = 0;
+        i < 35;
+        i++
+    ) {
+
+        const x =
+            (i * 83) %
+            canvas.width;
+
+        const y =
+            (i * 37) %
+            115;
+
+
+        ctx.fillRect(
+            x,
+            y,
+            1,
+            1
+        );
+    }
+}
+
+
+// ============================================================
+// CHÃO
+// ============================================================
+
+function drawGround() {
+
+    ctx.strokeStyle = "#00f0ff";
+
+    ctx.lineWidth = 2;
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        0,
+        groundY
+    );
+
+    ctx.lineTo(
+        canvas.width,
+        groundY
+    );
+
+    ctx.stroke();
+
+
+    ctx.shadowBlur = 0;
+
+
+    ctx.fillStyle = "#00f0ff";
+
+
+    for (
+        let i = 0;
+        i < 80;
+        i++
+    ) {
+
+        const x =
+            (
+                i * 97 +
+                Math.floor(score * 10)
+            ) %
+            canvas.width;
+
+
+        const y =
+            groundY +
+            5 +
+            ((i * 13) % 12);
+
+
+        ctx.fillRect(
+            x,
+            y,
+            2,
+            1
+        );
+    }
+}
+
+
+// ============================================================
+// DINOSSAURO
+// ============================================================
+
+function drawDino() {
+
+    const pixelSize = 2.5;
+
+    ctx.fillStyle = "#00f0ff";
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    for (
+        let row = 0;
+        row < DINO_MATRIX.length;
+        row++
+    ) {
+
+        for (
+            let col = 0;
+            col < DINO_MATRIX[row].length;
+            col++
+        ) {
+
+            if (
+                DINO_MATRIX[row][col] === "X"
+            ) {
+
+                ctx.fillRect(
+
+                    dino.x +
+                    col * pixelSize,
+
+                    dino.y +
+                    row * pixelSize,
+
+                    pixelSize,
+                    pixelSize
+                );
+            }
+        }
+    }
+
+
+    ctx.shadowBlur = 0;
+
+
+    if (dino.onGround) {
+
+        const frame =
+            Math.floor(
+                dino.legAnimation
+            ) % 2;
+
+
+        ctx.fillStyle = "#00f0ff";
+
+
+        if (frame === 0) {
+
+            ctx.fillRect(
+                dino.x + 7,
+                dino.y + 38,
+                4,
+                7
+            );
+
+
+            ctx.fillRect(
+                dino.x + 25,
+                dino.y + 36,
+                4,
+                8
+            );
+
+        } else {
+
+            ctx.fillRect(
+                dino.x + 10,
+                dino.y + 36,
+                4,
+                8
+            );
+
+
+            ctx.fillRect(
+                dino.x + 28,
+                dino.y + 38,
+                4,
+                7
+            );
+        }
+    }
+}
+
+
+// ============================================================
+// CACTO
+// ============================================================
+
+function drawCactus(obstacle) {
+
+    ctx.fillStyle = "#00f0ff";
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    const x =
+        obstacle.x;
+
+    const y =
+        obstacle.y;
+
+
+    if (
+        obstacle.type === "single"
+    ) {
+
+        ctx.fillRect(
+            x + 6,
+            y,
+            7,
+            25
+        );
+
+
+        ctx.fillRect(
+            x,
+            y + 8,
+            7,
+            5
+        );
+
+
+        ctx.fillRect(
+            x - 2,
+            y + 5,
+            4,
+            9
+        );
+
+
+        ctx.fillRect(
+            x + 13,
+            y + 13,
+            6,
+            5
+        );
+
+
+        ctx.fillRect(
+            x + 15,
+            y + 8,
+            4,
+            10
+        );
+
+    } else {
+
+        ctx.fillRect(
+            x + 10,
+            y,
+            7,
+            33
+        );
+
+
+        ctx.fillRect(
+            x + 2,
+            y + 10,
+            8,
+            5
+        );
+
+
+        ctx.fillRect(
+            x,
+            y + 7,
+            4,
+            11
+        );
+
+
+        ctx.fillRect(
+            x + 17,
+            y + 17,
+            9,
+            5
+        );
+
+
+        ctx.fillRect(
+            x + 23,
+            y + 12,
+            4,
+            11
+        );
+    }
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// RAIO
+// ============================================================
+
+function drawLightningBeam(
+    startX,
+    startY,
+    endX
+) {
+
+    const segments = 12;
+
+    const points = [];
+
+
+    points.push({
+        x: startX,
+        y: startY
+    });
+
+
+    for (
+        let i = 1;
+        i <= segments;
+        i++
+    ) {
+
+        const progress =
+            i / segments;
+
+
+        const x =
+            startX +
+            (endX - startX) *
+            progress;
+
+
+        const y =
+            startY +
+            (Math.random() - 0.5) *
+            25;
+
+
+        points.push({
+            x,
+            y
+        });
+    }
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        points[0].x,
+        points[0].y
+    );
+
+
+    for (
+        let i = 1;
+        i < points.length;
+        i++
+    ) {
+
+        ctx.lineTo(
+            points[i].x,
+            points[i].y
+        );
+    }
+
+
+    ctx.strokeStyle =
+        "#00f0ff";
+
+    ctx.lineWidth = 10;
+
+    ctx.shadowBlur = 25;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        points[0].x,
+        points[0].y
+    );
+
+
+    for (
+        let i = 1;
+        i < points.length;
+        i++
+    ) {
+
+        ctx.lineTo(
+            points[i].x,
+            points[i].y
+        );
+    }
+
+
+    ctx.strokeStyle =
+        "#ffffff";
+
+    ctx.lineWidth = 3;
+
+    ctx.shadowBlur = 15;
+
+    ctx.shadowColor =
+        "#ffffff";
+
+    ctx.stroke();
+
+
+    ctx.shadowBlur = 0;
+
+
+    for (
+        let i = 2;
+        i < points.length - 1;
+        i += 2
+    ) {
+
+        if (
+            Math.random() > 0.45
+        ) {
+
+            continue;
+        }
+
+
+        const p =
+            points[i];
+
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            p.x,
+            p.y
+        );
+
+
+        ctx.lineTo(
+
+            p.x +
+            (Math.random() - 0.5) *
+            35,
+
+            p.y +
+            (Math.random() - 0.5) *
+            40
+        );
+
+
+        ctx.strokeStyle =
+            "#00f0ff";
+
+        ctx.lineWidth = 1.5;
+
+        ctx.stroke();
+    }
+}
+
+
+// ============================================================
+// PARTÍCULAS DO RAIO
+// ============================================================
+
+function updateLightningParticles() {
+
+    for (
+        let i =
+            lightningParticles.length - 1;
+
+        i >= 0;
+
+        i--
+    ) {
+
+        const p =
+            lightningParticles[i];
+
+
+        p.x +=
+            p.velocityX;
+
+        p.y +=
+            p.velocityY;
+
+        p.velocityY += 0.15;
+
+        p.life--;
+
+
+        if (
+            p.life <= 0
+        ) {
+
+            lightningParticles.splice(
+                i,
+                1
+            );
+        }
+    }
+}
+
+
+function drawLightningParticles() {
+
+    for (
+        const p of lightningParticles
+    ) {
+
+        ctx.fillStyle =
+            "#00f0ff";
+
+        ctx.shadowBlur = 10;
+
+        ctx.shadowColor =
+            "#00f0ff";
+
+
+        ctx.fillRect(
+            p.x,
+            p.y,
+            3,
+            3
+        );
+    }
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// HUD
+// ============================================================
+
+function drawHUD() {
+
+    ctx.fillStyle =
+        "#00f0ff";
+
+    ctx.font =
+        "bold 14px Courier New";
+
+    ctx.textAlign =
+        "left";
+
+    ctx.shadowBlur = 5;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.fillText(
+        "SCORE: " +
+        Math.floor(score),
+        15,
+        25
+    );
+
+
+    ctx.textAlign =
+        "right";
+
+
+    ctx.fillText(
+        "HI: " +
+        Math.floor(highScore),
+        canvas.width - 15,
+        25
+    );
+
+
+    const remaining =
+        Math.max(
+
+            0,
+
+            COOLDOWN_TIME -
+            (
+                Date.now() -
+                lastLightningTime
+            )
+        );
+
+
+    ctx.textAlign =
+        "left";
+
+
+    if (
+        remaining > 0
+    ) {
+
+        ctx.fillStyle =
+            "#777";
+
+
+        ctx.fillText(
+
+            "RAIO: " +
+            (
+                remaining / 1000
+            ).toFixed(1) +
+            "s",
+
+            15,
+            45
+        );
+
+    } else {
+
+        ctx.fillStyle =
+            "#00f0ff";
+
+
+        ctx.fillText(
+            "RAIO: PRONTO [R]",
+            15,
+            45
+        );
+    }
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// CENA DAS ROTAS
+// ============================================================
+
+function drawRouteChoice() {
+
+    ctx.fillStyle =
+        "#020207";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    for (
+        let i = 0;
+        i < 45;
+        i++
+    ) {
+
+        const x =
+            (
+                i * 79 +
+                Math.floor(
+                    routeAnimation * 20
+                )
+            ) %
+            canvas.width;
+
+
+        const y =
+            (i * 31) % 80;
+
+
+        ctx.fillStyle =
+            "#00f0ff";
+
+
+        ctx.fillRect(
+            x,
+            y,
+            1,
+            1
+        );
+    }
+
+
+    ctx.textAlign =
+        "center";
+
+    ctx.fillStyle =
+        "#00f0ff";
+
+    ctx.font =
+        "bold 15px Courier New";
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.fillText(
+        "UMA ESCOLHA SURGIU...",
+        400,
+        20
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // ESTRADA 1
+
+    ctx.fillStyle =
+        "#11111a";
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        385,
+        95
+    );
+
+    ctx.lineTo(
+        390,
+        95
+    );
+
+    ctx.lineTo(
+        90,
+        200
+    );
+
+    ctx.lineTo(
+        350,
+        200
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.strokeStyle =
+        "#00f0ff";
+
+    ctx.lineWidth = 2;
+
+    ctx.stroke();
+
+
+    // ESTRADA 2
+
+    ctx.fillStyle =
+        "#11111a";
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        410,
+        95
+    );
+
+    ctx.lineTo(
+        415,
+        95
+    );
+
+    ctx.lineTo(
+        710,
+        200
+    );
+
+    ctx.lineTo(
+        450,
+        200
+    );
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.strokeStyle =
+        "#ff3bd4";
+
+    ctx.stroke();
+
+
+    // LINHAS
+
+    ctx.strokeStyle =
+        "#777";
+
+    ctx.lineWidth = 1;
+
+    ctx.setLineDash([
+        8,
+        8
+    ]);
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        387,
+        100
+    );
+
+    ctx.lineTo(
+        210,
+        200
+    );
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        413,
+        100
+    );
+
+    ctx.lineTo(
+        590,
+        200
+    );
+
+    ctx.stroke();
+
+
+    ctx.setLineDash([]);
+
+
+    drawDinoBack();
+
+
+    // ROTA 1
+
+    ctx.fillStyle =
+        "#00f0ff";
+
+    ctx.font =
+        "bold 9px Courier New";
+
+    ctx.shadowBlur = 8;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.fillText(
+        "ROTA 1",
+        210,
+        90
+    );
+
+
+    ctx.font =
+        "7px Courier New";
+
+
+    ctx.fillText(
+        "Caso escolha esta rota,",
+        210,
+        105
+    );
+
+
+    ctx.fillText(
+        "você ganhará muito",
+        210,
+        114
+    );
+
+
+    ctx.font =
+        "bold 9px Courier New";
+
+
+    ctx.fillText(
+        "DINHEIRO",
+        210,
+        126
+    );
+
+
+    // ROTA 2
+
+    ctx.fillStyle =
+        "#ff3bd4";
+
+    ctx.shadowColor =
+        "#ff3bd4";
+
+
+    ctx.font =
+        "bold 9px Courier New";
+
+
+    ctx.fillText(
+        "ROTA 2",
+        590,
+        90
+    );
+
+
+    ctx.font =
+        "7px Courier New";
+
+
+    ctx.fillText(
+        "Caso escolha esta rota,",
+        590,
+        105
+    );
+
+
+    ctx.fillText(
+        "você ganhará muito",
+        590,
+        114
+    );
+
+
+    ctx.font =
+        "bold 9px Courier New";
+
+
+    ctx.fillText(
+        "AMOR",
+        590,
+        126
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // CONFIRMAÇÃO
+
+    if (
+        selectedRoute !== 0
+    ) {
+
+        ctx.fillStyle =
+            "rgba(0,0,0,0.85)";
+
+        ctx.fillRect(
+            180,
+            145,
+            440,
+            40
+        );
+
+
+        ctx.textAlign =
+            "center";
+
+        ctx.font =
+            "bold 13px Courier New";
+
+
+        if (
+            selectedRoute === 1
+        ) {
+
+            ctx.fillStyle =
+                "#00f0ff";
+
+            ctx.shadowBlur = 10;
+
+            ctx.shadowColor =
+                "#00f0ff";
+
+
+            ctx.fillText(
+                "ROTA 1 ESCOLHIDA!",
+                400,
+                170
+            );
+
+        } else {
+
+            ctx.fillStyle =
+                "#ff3bd4";
+
+            ctx.shadowBlur = 10;
+
+            ctx.shadowColor =
+                "#ff3bd4";
+
+
+            ctx.fillText(
+                "ROTA 2 ESCOLHIDA!",
+                400,
+                170
+            );
+        }
+
+
+        ctx.shadowBlur = 0;
+
+    } else {
+
+        ctx.fillStyle =
+            "#fff";
+
+        ctx.font =
+            "bold 10px Courier New";
+
+
+        ctx.fillText(
+            "PRESSIONE 1 OU 2 PARA ESCOLHER",
+            400,
+            185
+        );
+    }
+}
+
+
+// ============================================================
+// DINOSSAURO DE COSTAS
+// ============================================================
+
+function drawDinoBack() {
+
+    const x = 382;
+
+    const y = 60;
+
+
+    ctx.fillStyle =
+        "#00f0ff";
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    ctx.fillRect(
+        x,
+        y + 25,
+        30,
+        38
+    );
+
+
+    ctx.fillRect(
+        x + 3,
+        y + 8,
+        35,
+        25
+    );
+
+
+    ctx.fillRect(
+        x + 9,
+        y + 3,
+        22,
+        8
+    );
+
+
+    ctx.fillRect(
+        x + 3,
+        y + 20,
+        10,
+        20
+    );
+
+
+    ctx.fillRect(
+        x - 5,
+        y + 31,
+        10,
+        5
+    );
+
+
+    ctx.fillRect(
+        x + 30,
+        y + 31,
+        10,
+        5
+    );
+
+
+    ctx.fillRect(
+        x - 20,
+        y + 45,
+        22,
+        7
+    );
+
+
+    ctx.fillRect(
+        x - 28,
+        y + 49,
+        12,
+        6
+    );
+
+
+    ctx.fillRect(
+        x + 4,
+        y + 58,
+        8,
+        20
+    );
+
+
+    ctx.fillRect(
+        x + 21,
+        y + 58,
+        8,
+        20
+    );
+
+
+    ctx.fillRect(
+        x,
+        y + 75,
+        13,
+        5
+    );
+
+
+    ctx.fillRect(
+        x + 20,
+        y + 75,
+        13,
+        5
+    );
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// CORAÇÃO
+// ============================================================
+
+function drawHeart(
+    x,
+    y,
+    size
+) {
+
+    ctx.save();
+
+
+    ctx.translate(
+        x,
+        y
+    );
+
+
+    ctx.scale(
+        size / 10,
+        size / 10
+    );
+
+
+    ctx.fillStyle =
+        "#ff3bd4";
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#ff3bd4";
+
+
+    ctx.beginPath();
+
+
+    ctx.moveTo(
+        0,
+        3
+    );
+
+
+    ctx.bezierCurveTo(
+        -8,
+        -4,
+        -10,
+        5,
+        0,
+        11
+    );
+
+
+    ctx.bezierCurveTo(
+        10,
+        5,
+        8,
+        -4,
+        0,
+        3
+    );
+
+
+    ctx.fill();
+
+
+    ctx.restore();
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// DINOSSAURA ROSA
+// ============================================================
+
+function drawPinkDino(
+    x,
+    y
+) {
+
+    ctx.fillStyle =
+        "#ff69c9";
+
+    ctx.shadowBlur = 12;
+
+    ctx.shadowColor =
+        "#ff3bd4";
+
+
+    // corpo
+
+    ctx.fillRect(
+        x,
+        y + 25,
+        40,
+        35
+    );
+
+
+    // pescoço
+
+    ctx.fillRect(
+        x + 27,
+        y + 8,
+        13,
+        35
+    );
+
+
+    // cabeça
+
+    ctx.fillRect(
+        x + 22,
+        y,
+        35,
+        25
+    );
+
+
+    // focinho
+
+    ctx.fillRect(
+        x + 48,
+        y + 13,
+        17,
+        12
+    );
+
+
+    // cauda
+
+    ctx.fillRect(
+        x - 22,
+        y + 35,
+        25,
+        10
+    );
+
+
+    ctx.fillRect(
+        x - 32,
+        y + 40,
+        15,
+        7
+    );
+
+
+    // pernas
+
+    ctx.fillRect(
+        x + 6,
+        y + 53,
+        9,
+        25
+    );
+
+
+    ctx.fillRect(
+        x + 28,
+        y + 53,
+        9,
+        25
+    );
+
+
+    // pés
+
+    ctx.fillRect(
+        x + 2,
+        y + 75,
+        16,
+        5
+    );
+
+
+    ctx.fillRect(
+        x + 25,
+        y + 75,
+        16,
+        5
+    );
+
+
+    // braço
+
+    ctx.fillRect(
+        x + 35,
+        y + 35,
+        18,
+        6
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // olho
+
+    ctx.fillStyle =
+        "#000";
+
+    ctx.fillRect(
+        x + 44,
+        y + 7,
+        5,
+        5
+    );
+
+
+    // lacinho
+
+    drawBow(
+        x + 28,
+        y - 4
+    );
+}
+
+
+// ============================================================
+// LACINHO
+// ============================================================
+
+function drawBow(
+    x,
+    y
+) {
+
+    ctx.fillStyle =
+        "#ff3bd4";
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#ff3bd4";
+
+
+    ctx.beginPath();
+
+
+    ctx.moveTo(
+        x,
+        y
+    );
+
+
+    ctx.lineTo(
+        x - 13,
+        y - 7
+    );
+
+
+    ctx.lineTo(
+        x - 12,
+        y + 7
+    );
+
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.beginPath();
+
+
+    ctx.moveTo(
+        x + 2,
+        y
+    );
+
+
+    ctx.lineTo(
+        x + 15,
+        y - 7
+    );
+
+
+    ctx.lineTo(
+        x + 14,
+        y + 7
+    );
+
+
+    ctx.closePath();
+
+    ctx.fill();
+
+
+    ctx.fillRect(
+        x - 2,
+        y - 4,
+        8,
+        9
+    );
+
+
+    ctx.shadowBlur = 0;
+}
+
+
+// ============================================================
+// CUTSCENE FINAL FELIZ
+// ============================================================
+
+function drawHappyEnding() {
+
+    ctx.fillStyle =
+        "#08020b";
+
+    ctx.fillRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    // estrelas
+
+    for (
+        let i = 0;
+        i < 45;
+        i++
+    ) {
+
+        const x =
+            (i * 97) %
+            canvas.width;
+
+        const y =
+            (i * 31) %
+            120;
+
+
+        ctx.fillStyle =
+            i % 2 === 0
+            ? "#ff3bd4"
+            : "#00f0ff";
+
+
+        ctx.fillRect(
+            x,
+            y,
+            1,
+            1
+        );
+    }
+
+
+    // chão
+
+    ctx.strokeStyle =
+        "#ff3bd4";
+
+    ctx.lineWidth = 2;
+
+    ctx.shadowBlur = 10;
+
+    ctx.shadowColor =
+        "#ff3bd4";
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        0,
+        170
+    );
+
+    ctx.lineTo(
+        800,
+        170
+    );
+
+    ctx.stroke();
+
+
+    ctx.shadowBlur = 0;
+
+
+    // personagens
+
+    drawEndingDino(
+        endingDinoX,
+        100
+    );
+
+
+    drawPinkDino(
+        endingGirlX,
+        90
+    );
+
+
+    // coração do beijo
+
+    if (
+        endingPhase >= 2
+    ) {
+
+        drawHeart(
+
+            400,
+
+            78 +
+            Math.sin(
+                endingTimer * 0.1
+            ) * 3,
+
+            8
+        );
+    }
+
+
+    // vários corações
+
+    if (
+        endingPhase >= 3
+    ) {
+
+        for (
+            const heart of hearts
+        ) {
+
+            drawHeart(
+                heart.x,
+                heart.y,
+                heart.size
+            );
+        }
+    }
+
+
+    // FINAL FELIZ
+
+    if (
+        endingPhase >= 4
+    ) {
+
+        ctx.textAlign =
+            "center";
+
+
+        ctx.fillStyle =
+            "#ff3bd4";
+
+        ctx.font =
+            "bold 25px Courier New";
+
+        ctx.shadowBlur = 20;
+
+        ctx.shadowColor =
+            "#ff3bd4";
+
+
+        ctx.fillText(
+            "FINAL FELIZ",
+            400,
+            45
+        );
+
+
+        ctx.shadowBlur = 0;
+
+
+        // BOTÃO
+
+        ctx.fillStyle =
+            "rgba(255,59,212,0.15)";
+
+        ctx.fillRect(
+            300,
+            145,
+            200,
+            35
+        );
+
+
+        ctx.strokeStyle =
+            "#ff3bd4";
+
+        ctx.lineWidth = 2;
+
+        ctx.strokeRect(
+            300,
+            145,
+            200,
+            35
+        );
+
+
+        ctx.fillStyle =
+            "#fff";
+
+        ctx.font =
+            "bold 12px Courier New";
+
+
+        ctx.fillText(
+            "REINICIAR",
+            400,
+            168
+        );
+    }
+}
+
+
+// ============================================================
+// DINOSSAURO DO FINAL
+// ============================================================
+
+function drawEndingDino(
+    x,
+    y
+) {
+
+    ctx.fillStyle =
+        "#00f0ff";
+
+    ctx.shadowBlur = 12;
+
+    ctx.shadowColor =
+        "#00f0ff";
+
+
+    // corpo
+
+    ctx.fillRect(
+        x,
+        y + 25,
+        40,
+        35
+    );
+
+
+    // pescoço
+
+    ctx.fillRect(
+        x + 27,
+        y + 8,
+        13,
+        35
+    );
+
+
+    // cabeça
+
+    ctx.fillRect(
+        x + 22,
+        y,
+        35,
+        25
+    );
+
+
+    // focinho
+
+    ctx.fillRect(
+        x + 48,
+        y + 13,
+        17,
+        12
+    );
+
+
+    // cauda
+
+    ctx.fillRect(
+        x - 22,
+        y + 35,
+        25,
+        10
+    );
+
+
+    ctx.fillRect(
+        x - 32,
+        y + 40,
+        15,
+        7
+    );
+
+
+    // pernas
+
+    ctx.fillRect(
+        x + 6,
+        y + 53,
+        9,
+        25
+    );
+
+
+    ctx.fillRect(
+        x + 28,
+        y + 53,
+        9,
+        25
+    );
+
+
+    // pés
+
+    ctx.fillRect(
+        x + 2,
+        y + 75,
+        16,
+        5
+    );
+
+
+    ctx.fillRect(
+        x + 25,
+        y + 75,
+        16,
+        5
+    );
+
+
+    // braço
+
+    ctx.fillRect(
+        x + 35,
+        y + 35,
+        18,
+        6
+    );
+
+
+    ctx.shadowBlur = 0;
+
+
+    // olho
+
+    ctx.fillStyle =
+        "#000";
+
+    ctx.fillRect(
+        x + 44,
+        y + 7,
+        5,
+        5
+    );
+}
+
+
+// ============================================================
+// RESET
+// ============================================================
+
+function resetGame() {
+
+    // Estado principal
+
+    gameStarted = true;
+
+    gameOver = false;
+
+
+    // Pontuação
+
+    score = 0;
+
+    speed = 6;
+
+
+    // Objetos
+
+    obstacles = [];
+
+    lightningParticles = [];
+
+
+    // Spawn
+
+    nextObstacleTimer = 60;
+
+
+    // Rotas
+
+    routeChoiceActive = false;
+
+    routeTransition = false;
+
+    selectedRoute = 0;
+
+    chosenRoute = 0;
+
+
+    // Final feliz
+
+    endingActive = false;
+
+    endingPhase = 0;
+
+    endingTimer = 0;
+
+    endingDinoX = 230;
+
+    endingGirlX = 570;
+
+    hearts = [];
+
+
+    // Final ruim
+
+    badEndingActive = false;
+
+    badEndingPhase = 0;
+
+    badEndingTimer = 0;
+
+
+    // Dino
+
+    dino.x = 60;
+
+    dino.y = 130;
+
+    dino.velocityY = 0;
+
+    dino.onGround = true;
+
+    dino.legAnimation = 0;
+
+
+    // Raio
+
+    lastLightningTime =
+        -COOLDOWN_TIME;
+
+    isLightningActive = false;
+
+    lightningDuration = 0;
+
+    screenFlash = 0;
+}
+
+
+// ============================================================
+// LOOP
+// ============================================================
+
+function gameLoop() {
+
+    update();
+
+    draw();
+
+    requestAnimationFrame(
+        gameLoop
+    );
+}
+
+
+gameLoop();
+
+</script>
+
+</body>
+</html>
